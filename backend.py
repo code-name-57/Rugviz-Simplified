@@ -91,7 +91,6 @@ def update_background(background_id: int, background: RVBackground):
         background.id = background_id
         session.merge(background)
         session.commit()
-        session.refresh(background)
         return background
 
 @app.delete('/backgrounds/{background_id}')

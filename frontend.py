@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from nicegui import app, ui, events
-from backend import create_hero, read_hero, update_hero, delete_hero, list_heroes, create_background, list_backgrounds, update_background, delete_background
+from backend import create_hero, read_hero, update_hero, delete_hero, list_heroes, create_background, list_backgrounds, update_background, delete_background, read_background
 from models import Hero, RVBackground
 import asyncio
 import os
@@ -12,12 +12,6 @@ import subprocess
 class HeroApp:
     def __init__(self, fastapi_app: FastAPI) -> None:
         self.fastapi_app = fastapi_app
-
-        # state properties
-        self.editing_id = None
-        self.hero_list = None
-        self.name_input = None
-        self.power_input = None
 
         self.setup_ui()
 
@@ -107,15 +101,6 @@ class HeroApp:
 
         @ui.page('/backgrounds/')
         def show_backgound_list():
-            # build UI elements first
-            ui.label("Background Images List").classes('text-h5')
-            background_list = ui.column()
-            calibration_dialog = ui.dialog()
-            with calibration_dialog as dialog, ui.card():
-                ui.label('Hello world!')
-                ui.button('Close', on_click=dialog.close)
-            ui.button('Open a dialog', on_click=calibration_dialog.open)
-
 
             def refresh_background_list():
                 background_list.clear()
@@ -143,7 +128,18 @@ class HeroApp:
                     return
 
                 d = ui.dialog()
-                annotation = {}  # Will hold annotation coordinates as {'start': (x, y), 'end': (x, y)}
+                                # Initialize annotation dictionary with existing points if present
+                annotation = {}
+                if getattr(bg, "point1_x", None) is not None:
+                    annotation["points"] = [
+                        (bg.point1_x, bg.point1_y),
+                        (bg.point2_x, bg.point2_y),
+                        (bg.point3_x, bg.point3_y),
+                        (bg.point4_x, bg.point4_y),
+                    ]
+                else:
+                    annotation["points"] = []
+                
                 with d, ui.card().classes("p-4"):
                     ui.label("Annotate the image with a rectangle")
                     # Display current image
@@ -222,16 +218,25 @@ class HeroApp:
                 d.open()
             
             def save_edited(bg_id: int, coords: dict, dialog):
-                if "start" in coords and "end" in coords:
-                    # Assuming update_background accepts a dict with new annotation info
-                    # You can store the rectangle points as needed (here simply as a string)
-                    rect_annotation = f"{coords['start']} to {coords['end']}"
-                    update_background({"id": bg_id, "annotation": rect_annotation})
+                bg_old_obj = read_background(bg_id)
+                if "points" in coords and len(coords["points"]) == 4:
+                    # Extract the four points
+                    p1, p2, p3, p4 = coords["points"]
+                    # Update the background record with the coordinate values
+                    new_background = RVBackground.model_validate({
+                        "id": bg_id,
+                        "image_path": bg_old_obj.image_path,
+                        "point1_x": int(p1[0]), "point1_y": int(p1[1]),
+                        "point2_x": int(p2[0]), "point2_y": int(p2[1]),
+                        "point3_x": int(p3[0]), "point3_y": int(p3[1]),
+                        "point4_x": int(p4[0]), "point4_y": int(p4[1]),
+                    })
+                    update_background(background_id=bg_id, background=new_background)
                     ui.notify("Background updated", color="positive")
                     dialog.close()
                     refresh_background_list()
                 else:
-                    ui.notify("Please annotate by selecting two points.", color="warning")
+                    ui.notify("Please annotate by selecting four points.", color="warning")
             
             async def handle_upload(args: events.UploadEventArguments):
                 if 'image' in args.type:
@@ -249,14 +254,24 @@ class HeroApp:
                     os.chdir('..')
                     upload.run_method('reset')
 
+
+
             os.makedirs('data', exist_ok=True)
             app.add_static_files('/data', 'data')
 
+            # build UI elements first
+            ui.label("Background Images List").classes('text-h5')
             with ui.column().classes('w-full items-center'):
                 ui.label('Extract images from video').classes('text-3xl m-3')
                 upload = ui.upload(label='pick a video file', auto_upload=True, on_upload=handle_upload)
                 results = ui.row().classes('w-full justify-center mt-6')
+                background_list = ui.column()
+
             refresh_background_list()
+
+
+
+
 
         @ui.page('/backgrounds/{id}/')
         def show_edit_background(id: int):
