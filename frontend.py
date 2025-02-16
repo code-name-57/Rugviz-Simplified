@@ -8,6 +8,8 @@ import pathlib
 import shlex
 import shutil
 import subprocess
+from image_transform import apply_rug_to_background
+import cv2
 
 class HeroApp:
     def __init__(self, fastapi_app: FastAPI) -> None:
@@ -110,7 +112,7 @@ class HeroApp:
                             ui.image(source=bg.image_path)
                             ui.button("Edit", on_click=lambda bg_id=bg.id: open_edit_dialog(bg_id)).classes("ml-2")
                             ui.button("Delete", on_click=lambda bg_id=bg.id: delete_bg(bg_id)).classes("ml-2")
-            
+                            ui.button("Render Rugs", on_click=lambda bg_id=bg.id : render_rugs(bg_id)).classes("ml-2")
             def delete_bg(bg_id: int):
                 delete_background(bg_id)
                 refresh_background_list()
@@ -243,10 +245,11 @@ class HeroApp:
                     # Handle image file uploads
                     os.makedirs('data', exist_ok=True)
                     os.chdir('data')
+                    os.chdir('backgrounds')
                     with open(args.name, 'wb') as f:
                         f.write(args.content.read())
                     # Update the interactive image to the newly uploaded image.
-                    background_obj = RVBackground.model_validate({'image_path': f'/data/{args.name}'})
+                    background_obj = RVBackground.model_validate({'image_path': f'/data/backgrounds/{args.name}'})
                     create_background(background_obj)
 
                     ui.notify("Image uploaded successfully.", color="positive")
@@ -254,7 +257,51 @@ class HeroApp:
                     os.chdir('..')
                     upload.run_method('reset')
 
+            async def render_rugs(bg_id: int):
+                bg = read_background(bg_id)
+                if not bg:
+                    ui.notify("Background not found", color="warning")
+                    return
+                if None in (bg.point1_x, bg.point1_y, bg.point2_x, bg.point2_y, bg.point3_x, bg.point3_y, bg.point4_x, bg.point4_y):
+                    ui.notify("Background annotation incomplete", color="warning")
+                    return
+                homography_points = [
+                    [bg.point1_x, bg.point1_y],
+                    [bg.point2_x, bg.point2_y],
+                    [bg.point3_x, bg.point3_y],
+                    [bg.point4_x, bg.point4_y]
+                ]
+                if not bg:
+                    ui.notify("Background not found", color="warning")
+                    return
+                background_image_path = bg.image_path
+                print(f"PATH ::: {background_image_path}")
+                if background_image_path.startswith('/data/'):
+                    # Convert the NiceGUI URL to a local filesystem path for OpenCV
+                    background_image_path = os.path.join(os.getcwd(), background_image_path.lstrip('/'))
+                rugs_root = os.path.join("data", "rugs")
+                output_base = os.path.join("data", "output", f"background_{bg_id}")
 
+                # Read the background image to determine its dimensions then compute default homography points.
+                bg_img = cv2.imread(background_image_path)
+                if bg_img is None:
+                    ui.notify("Could not read background image", color="warning")
+                    return
+                (h, w) = bg_img.shape[:2]
+
+                for root, _, files in os.walk(rugs_root):
+                    for file in files:
+                        if file.lower().endswith((".jpg", ".png")):
+                            rug_path = os.path.join(root, file)
+                            relative = os.path.relpath(root, rugs_root)
+                            dest_dir = os.path.join(output_base, relative)
+                            os.makedirs(dest_dir, exist_ok=True)
+                            output_file = os.path.join(dest_dir, file)
+                            rug_img = cv2.imread(rug_path)
+                            rendered_img = apply_rug_to_background(bg_img, rug_img, homography_points)
+                            cv2.imwrite(output_file, rendered_img)
+
+                ui.notify("Rugs rendered successfully.", color="positive")
 
             os.makedirs('data', exist_ok=True)
             app.add_static_files('/data', 'data')
