@@ -1,0 +1,12 @@
+database.db
+data
+
+.nicegui
+__pycache__
+*.pyc
+
+*.jpg
+*.jpeg
+*.avi
+*.mp4
+*.png
