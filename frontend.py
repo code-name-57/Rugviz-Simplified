@@ -178,9 +178,9 @@ class HeroApp:
                     create_background(background_obj)
 
                     ui.notify("Image uploaded successfully.", color="positive")
-                    refresh_background_list()
-                    os.chdir('..')
+                    os.chdir('../..')
                     upload.run_method('reset')
+                    refresh_background_list()
 
             async def render_rugs(bg_id: int):
                 bg = read_background(bg_id)
